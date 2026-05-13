@@ -1,0 +1,36 @@
+vsphere:
+  host: "vcenter.example.com"
+  port: 443
+  username: "svc_mcp_vsphere"
+  password_env: "VSPHERE_PASSWORD"    # 密码从环境变量读取
+  insecure_ssl: true
+
+mcp:
+  name: "esxi-power-mcp"
+  readonly_default: true
+
+timeouts:
+  task_timeout: 300
+  poweroff_state_timeout: 900
+  poweron_state_timeout: 900
+  boot_wait: 30
+
+safety:
+  require_confirm_for_poweroff: true
+  require_confirm_for_restart: true
+  allow_power_ops:       # 白名单（支持通配符）
+    - "test-vm-01"
+    - "app-*"
+    - "dev-*"
+  deny_power_ops:        # 黑名单（优先级高于白名单）
+    - "vcenter*"
+    - "vcsa*"
+    - "db-prod-*"
+    - "mysql-prod-*"
+    - "postgres-prod-*"
+    - "redis-prod-*"
+    - "k8s-master-*"
+
+audit:
+  enabled: true
+  file: "./logs/audit.log"

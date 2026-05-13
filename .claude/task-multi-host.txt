@@ -1,0 +1,46 @@
+新任务：改造 esxi-mcp 为多主机支持。
+
+背景：当前只支持单个 vCenter/ESXi。实际环境有几十台 VM 宿主机，混合 vCenter + 独立 ESXi，每台密码不同。
+
+=== 1. 配置改造（config.yaml）===
+
+把单 vsphere 配置改为 hosts 字典：
+
+hosts:
+  site-a-vcenter:
+    host: "vc1.example.com"
+    username: "svc_mcp@vsphere.local"
+    password_env: "VSPHERE_VC1_PASSWORD"
+    insecure_ssl: true
+    port: 443
+  rack3-esxi:
+    host: "10.0.1.10"
+    username: "root"
+    password_env: "VSPHERE_ESXI1_PASSWORD"
+    insecure_ssl: true
+    port: 443
+
+密码永不写入配置文件，始终从环境变量读取。每端点配不同 password_env。
+
+=== 2. 底层架构 ===
+
+新建 VSphereClientPool 类（或改 vsphere_client.py），内部维护 name->VSphereClient 映射，懒连接。某端点挂了不影响其他端点只读查询。
+
+=== 3. 工具改造 ===
+
+所有工具新增可选 target 参数：
+- 读操作（list_vms, get_vm_status, list_hosts, get_host_resource）：不带 target 时查所有端点合并去重，带 target 精确查单个
+- 写操作（power_on_vm, power_off_vm, restart_vm_force）：必须带 target，精确到具体端点防止误操作
+
+=== 4. 内部模块 ===
+
+vm_inventory.py, host_inventory.py, vm_power.py, safety.py 接口不变，不需要改。
+
+=== 5. Docker 文件 ===
+
+项目已有 Dockerfile, .dockerignore, docker-compose.yml，需要更新以支持多密码环境变量。
+
+=== 要求 ===
+
+先设计方案，确认后再实现。TDD 方式逐步改。
+不改动 safety.py 的权力控制逻辑（白名单/黑名单保持不变，只与 VM 名称相关）。

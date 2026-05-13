@@ -1,0 +1,4 @@
+pyvmomi
+mcp
+pyyaml
+pydantic
