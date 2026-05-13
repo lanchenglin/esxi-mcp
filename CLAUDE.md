@@ -85,7 +85,7 @@ PowerOffVM_Task → wait task success → wait poweredOff → PowerOnVM_Task →
 ```
 esxi-mcp/
 ├── server.py              # MCP Server 入口（FastMCP）
-├── vsphere_client.py      # vCenter/ESXi 连接封装
+├── vsphere_client.py      # vCenter/ESXi 连接封装 + VSphereClientPool
 ├── vm_power.py            # PowerOn/PowerOff/Restart 核心逻辑
 ├── vm_inventory.py        # VM 查询与状态读取
 ├── host_inventory.py      # 宿主机资源巡检
@@ -99,18 +99,23 @@ esxi-mcp/
 │   └── audit.log
 └── tests/
     ├── test_safety.py
-    └── test_power_logic.py
+    ├── test_power_logic.py
+    ├── test_server_write_operations.py
+    ├── test_pool.py
+    └── test_server_multi_host.py
 ```
 
 ## 配置文件 (config.yaml)
 
 ```yaml
 vsphere:
-  host: "vcenter.example.com"
-  port: 443
-  username: "svc_mcp_vsphere"
-  password_env: "VSPHERE_PASSWORD"    # 密码从环境变量读取
-  insecure_ssl: true
+  hosts:
+    vcenter-main:
+      host: "vcenter.example.com"
+      port: 443
+      username: "svc_mcp_vsphere"
+      password_env: "VSPHERE_PASSWORD_VC_MAIN"
+      insecure_ssl: true
 
 mcp:
   name: "esxi-power-mcp"
@@ -146,7 +151,7 @@ audit:
 ## 环境变量
 
 ```bash
-export VSPHERE_PASSWORD='your-password'
+export VSPHERE_PASSWORD_VC_MAIN='your-password'
 ```
 
 密码绝不写入配置文件。
@@ -215,28 +220,28 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("esxi-power-mcp")
 
 @mcp.tool()
-def list_vms(keyword: str = None, power_state: str = None): ...
+def list_vms(keyword: str = None, power_state: str = None, target: str = None): ...
 
 @mcp.tool()
-def get_vm_status(vm_name: str = None, uuid: str = None, moid: str = None): ...
+def get_vm_status(vm_name: str = None, uuid: str = None, moid: str = None, target: str = None): ...
 
 @mcp.tool()
-def list_hosts(keyword: str = None): ...
+def list_hosts(keyword: str = None, target: str = None): ...
 
 @mcp.tool()
-def get_host_resource(host_name: str): ...
+def get_host_resource(host_name: str, target: str = None): ...
 
 @mcp.tool()
-def power_on_vm(vm_name: str = None, uuid: str = None, moid: str = None,
+def power_on_vm(vm_name: str = None, uuid: str = None, moid: str = None, target: str = "",
                 task_timeout: int = 300, state_timeout: int = 900): ...
 
 @mcp.tool()
-def power_off_vm(vm_name: str = None, uuid: str = None, moid: str = None,
+def power_off_vm(vm_name: str = None, uuid: str = None, moid: str = None, target: str = "",
                  confirm: bool = False, task_timeout: int = 300,
                  state_timeout: int = 900): ...
 
 @mcp.tool()
-def restart_vm_force(vm_name: str = None, uuid: str = None, moid: str = None,
+def restart_vm_force(vm_name: str = None, uuid: str = None, moid: str = None, target: str = "",
                      confirm: bool = False, poweroff_task_timeout: int = 300,
                      poweroff_state_timeout: int = 900,
                      poweron_task_timeout: int = 300,
