@@ -31,6 +31,7 @@ class VSphereClient:
         """
         self.config = config
         self._service_instance: vim.ServiceInstance | None = None
+        self._register_atexit: bool = True
 
     @classmethod
     def from_config_file(cls, path: str | Path = DEFAULT_CONFIG_PATH) -> "VSphereClient":
@@ -84,7 +85,8 @@ class VSphereClient:
         finally:
             socket.setdefaulttimeout(previous_timeout)
 
-        atexit.register(self.disconnect)
+        if self._register_atexit:
+            atexit.register(self.disconnect)
         return self._service_instance
 
     def disconnect(self) -> None:
@@ -101,6 +103,59 @@ class VSphereClient:
             pyVmomi service instance.
         """
         return self.connect()
+
+
+class VSphereClientPool:
+    """Manages multiple VSphereClient instances keyed by target name."""
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        self._config = config
+        self._clients: dict[str, VSphereClient] = {}
+        self._build_clients()
+
+    def _build_clients(self) -> None:
+        hosts = self._config.get("vsphere", {}).get("hosts")
+        if not hosts:
+            raise ValueError("config vsphere.hosts is empty")
+        for target, host_config in hosts.items():
+            sub_config = {**self._config, "vsphere": host_config}
+            client = VSphereClient(sub_config)
+            client._register_atexit = False
+            self._clients[target] = client
+
+    def connect_all(self) -> None:
+        """Connects all targets. Rolls back on failure."""
+        connected: list[str] = []
+        try:
+            for target, client in self._clients.items():
+                client.connect()
+                connected.append(target)
+        except Exception:
+            for t in connected:
+                self._clients[t].disconnect()
+            raise
+
+    def disconnect_all(self) -> None:
+        """Disconnects all targets."""
+        for client in self._clients.values():
+            client.disconnect()
+
+    def get(self, target: str) -> VSphereClient:
+        """Returns the client for a given target name."""
+        if target not in self._clients:
+            raise KeyError(
+                f"target '{target}' not found, available: {list(self._clients.keys())}"
+            )
+        return self._clients[target]
+
+    def all_clients(self) -> dict[str, VSphereClient]:
+        """Returns all {target: client} for read parallelism."""
+        return dict(self._clients)
+
+    @property
+    def target_names(self) -> list[str]:
+        """Returns available target names."""
+        return list(self._clients.keys())
 
 
 _HELPER_TYPES = str | int | float | bool | None | list[Any] | dict[str, Any]
