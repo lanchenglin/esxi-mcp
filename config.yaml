@@ -6,6 +6,12 @@ vsphere:
       username: "svc_mcp_vsphere"
       password_env: "VSPHERE_PASSWORD_VC_MAIN"
       insecure_ssl: true
+    # esxi-bj:
+    #   host: "192.168.1.10"
+    #   port: 443
+    #   username: "root"
+    #   password_env: "VSPHERE_PASSWORD_ESXI_BJ"
+    #   insecure_ssl: true
 
 mcp:
   name: "esxi-power-mcp"

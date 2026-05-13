@@ -61,7 +61,7 @@ class MultiHostReadTests(unittest.TestCase):
         self, mock_list_vms: MagicMock
     ) -> None:
         def side_effect(si, **kwargs):
-            if mock_list_vms.call_count == 1:
+            if si is not pool.get("esxi-bj")._si:
                 return {"items": [{"name": "vm-a"}]}
             raise RuntimeError("Connection refused")
 

@@ -4,6 +4,7 @@ import atexit
 import os
 import socket
 import ssl
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ class VSphereClient:
         self.config = config
         self._service_instance: vim.ServiceInstance | None = None
         self._register_atexit: bool = True
+        self._connect_lock = threading.Lock()
 
     @classmethod
     def from_config_file(cls, path: str | Path = DEFAULT_CONFIG_PATH) -> "VSphereClient":
@@ -58,36 +60,40 @@ class VSphereClient:
         if self._service_instance is not None:
             return self._service_instance
 
-        vsphere_config = self.config.get("vsphere", {})
-        host = _required_string(vsphere_config, "host")
-        username = _required_string(vsphere_config, "username")
-        password_env = _required_string(vsphere_config, "password_env")
-        password = os.getenv(password_env)
-        if not password:
-            raise VSphereConfigError(f"Environment variable {password_env} is required")
+        with self._connect_lock:
+            if self._service_instance is not None:
+                return self._service_instance
 
-        port = int(vsphere_config.get("port", 443))
-        context = _build_ssl_context(bool(vsphere_config.get("insecure_ssl", True)))
-        previous_timeout = socket.getdefaulttimeout()
-        socket.setdefaulttimeout(CONNECT_TIMEOUT_SECONDS)
-        try:
-            self._service_instance = SmartConnect(
-                host=host,
-                user=username,
-                pwd=password,
-                port=port,
-                sslContext=context,
-            )
-        except vim.fault.InvalidLogin as exc:
-            raise RuntimeError(f"NoPermission or invalid login for vSphere user {username}") from exc
-        except Exception as exc:
-            raise RuntimeError(f"Failed to connect to vSphere host {host}:{port}: {exc}") from exc
-        finally:
-            socket.setdefaulttimeout(previous_timeout)
+            vsphere_config = self.config.get("vsphere", {})
+            host = _required_string(vsphere_config, "host")
+            username = _required_string(vsphere_config, "username")
+            password_env = _required_string(vsphere_config, "password_env")
+            password = os.getenv(password_env)
+            if not password:
+                raise VSphereConfigError(f"Environment variable {password_env} is required")
 
-        if self._register_atexit:
-            atexit.register(self.disconnect)
-        return self._service_instance
+            port = int(vsphere_config.get("port", 443))
+            context = _build_ssl_context(bool(vsphere_config.get("insecure_ssl", True)))
+            previous_timeout = socket.getdefaulttimeout()
+            socket.setdefaulttimeout(CONNECT_TIMEOUT_SECONDS)
+            try:
+                self._service_instance = SmartConnect(
+                    host=host,
+                    user=username,
+                    pwd=password,
+                    port=port,
+                    sslContext=context,
+                )
+            except vim.fault.InvalidLogin as exc:
+                raise RuntimeError(f"NoPermission or invalid login for vSphere user {username}") from exc
+            except Exception as exc:
+                raise RuntimeError(f"Failed to connect to vSphere host {host}:{port}: {exc}") from exc
+            finally:
+                socket.setdefaulttimeout(previous_timeout)
+
+            if self._register_atexit:
+                atexit.register(self.disconnect)
+            return self._service_instance
 
     def disconnect(self) -> None:
         """Disconnects from vCenter or ESXi if connected."""
@@ -159,9 +165,6 @@ class VSphereClientPool:
         return list(self._clients.keys())
 
 
-_HELPER_TYPES = str | int | float | bool | None | list[Any] | dict[str, Any]
-
-
 def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     """Loads project YAML configuration.
 
@@ -184,18 +187,6 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise VSphereConfigError("Config file must contain a YAML mapping")
     return data
-
-
-def get_service_instance(config_path: str | Path = DEFAULT_CONFIG_PATH) -> vim.ServiceInstance:
-    """Connects using config.yaml and returns a service instance.
-
-    Args:
-        config_path: Path to config.yaml.
-
-    Returns:
-        pyVmomi service instance.
-    """
-    return VSphereClient.from_config_file(config_path).get_service_instance()
 
 
 def _required_string(config: dict[str, Any], key: str) -> str:
