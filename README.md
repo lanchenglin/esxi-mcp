@@ -16,17 +16,26 @@ Edit `config.yaml`:
 
 ```yaml
 vsphere:
-  host: "vcenter.example.com"
-  port: 443
-  username: "svc_mcp_vsphere"
-  password_env: "VSPHERE_PASSWORD"
-  insecure_ssl: true
+  hosts:
+    vcenter-main:
+      host: "vcenter.example.com"
+      port: 443
+      username: "svc_mcp_vsphere"
+      password_env: "VSPHERE_PASSWORD_VC_MAIN"
+      insecure_ssl: true
+    # esxi-bj:
+    #   host: "192.168.1.10"
+    #   port: 443
+    #   username: "root"
+    #   password_env: "VSPHERE_PASSWORD_ESXI_BJ"
+    #   insecure_ssl: true
 ```
 
-Set the password in the environment. Do not put the password in `config.yaml`.
+Set each password in the environment. Do not put passwords in `config.yaml`.
 
 ```bash
-export VSPHERE_PASSWORD='your-password'
+export VSPHERE_PASSWORD_VC_MAIN='your-password'
+# export VSPHERE_PASSWORD_ESXI_BJ='your-password'
 ```
 
 Power operations are controlled by `safety.allow_power_ops` and `safety.deny_power_ops`. The deny list wins over the allow list, and an empty allow list blocks all VM power operations.
@@ -51,7 +60,7 @@ Run with config mounted and password from environment:
 
 ```bash
 docker run -i \
-  -e VSPHERE_PASSWORD='your-password' \
+  -e VSPHERE_PASSWORD_VC_MAIN='your-password' \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v esxi-logs:/app/logs \
   esxi-mcp
@@ -64,7 +73,7 @@ The `-i` flag is required — the MCP server communicates over stdio and stdin m
 Create a `.env` file with your password:
 
 ```bash
-echo 'VSPHERE_PASSWORD=your-password' > .env
+echo 'VSPHERE_PASSWORD_VC_MAIN=your-password' > .env
 ```
 
 Then start:
@@ -82,7 +91,7 @@ Config is mounted read-only from the host. Audit logs persist in the `esxi-logs`
   "mcpServers": {
     "esxi-power-mcp": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "VSPHERE_PASSWORD", "-v", "/path/to/config.yaml:/app/config.yaml:ro", "-v", "esxi-logs:/app/logs", "esxi-mcp"]
+      "args": ["run", "-i", "--rm", "-e", "VSPHERE_PASSWORD_VC_MAIN", "-v", "/path/to/config.yaml:/app/config.yaml:ro", "-v", "esxi-logs:/app/logs", "esxi-mcp"]
     }
   }
 }
@@ -92,18 +101,18 @@ Config is mounted read-only from the host. Audit logs persist in the `esxi-logs`
 
 ### Read-only
 
-- `list_vms(keyword: str | None = None, power_state: str | None = None)`
-- `get_vm_status(vm_name: str | None = None, uuid: str | None = None, moid: str | None = None)`
-- `list_hosts(keyword: str | None = None)`
-- `get_host_resource(host_name: str)`
+- `list_vms(keyword=None, power_state=None, target=None)` — query all targets in parallel when `target` is omitted; each item includes a `source` field
+- `get_vm_status(vm_name=None, uuid=None, moid=None, target=None)`
+- `list_hosts(keyword=None, target=None)`
+- `get_host_resource(host_name, target=None)`
 
 ### Write operations
 
-- `power_on_vm(vm_name=None, uuid=None, moid=None, task_timeout=300, state_timeout=900)`
-- `power_off_vm(vm_name=None, uuid=None, moid=None, confirm=False, task_timeout=300, state_timeout=900)`
-- `restart_vm_force(vm_name=None, uuid=None, moid=None, confirm=False, poweroff_task_timeout=300, poweroff_state_timeout=900, poweron_task_timeout=300, poweron_state_timeout=900, boot_wait=30)`
+- `power_on_vm(vm_name=None, uuid=None, moid=None, target, task_timeout=300, state_timeout=900)`
+- `power_off_vm(vm_name=None, uuid=None, moid=None, target, confirm=False, task_timeout=300, state_timeout=900)`
+- `restart_vm_force(vm_name=None, uuid=None, moid=None, target, confirm=False, poweroff_task_timeout=300, poweroff_state_timeout=900, poweron_task_timeout=300, poweron_state_timeout=900, boot_wait=30)`
 
-`power_off_vm` and `restart_vm_force` require `confirm=true`. All write operations must match `allow_power_ops`, must not match `deny_power_ops`, and must resolve to exactly one VM.
+`target` is **required** for all write operations. Read operations accept an optional `target` — omit it to query all configured hosts and merge results. `power_off_vm` and `restart_vm_force` require `confirm=true`. All write operations must match `allow_power_ops`, must not match `deny_power_ops`, and must resolve to exactly one VM.
 
 ## VM lookup priority
 
