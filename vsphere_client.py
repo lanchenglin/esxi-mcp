@@ -112,6 +112,7 @@ class VSphereClientPool:
         self._config = config
         self._clients: dict[str, VSphereClient] = {}
         self._build_clients()
+        atexit.register(self.disconnect_all)
 
     def _build_clients(self) -> None:
         hosts = self._config.get("vsphere", {}).get("hosts")
