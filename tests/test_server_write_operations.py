@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from pyVmomi import vim
 
@@ -43,6 +43,7 @@ class ServerWriteOperationTests(unittest.TestCase):
         with _patched_server(vm, audit_entries):
             result = server._run_write_operation(
                 "power_on_vm",
+                "vc-main",
                 vm.name,
                 None,
                 None,
@@ -72,6 +73,7 @@ class ServerWriteOperationTests(unittest.TestCase):
             with self.assertRaisesRegex(SafetyError, "VM matched deny_power_ops"):
                 server._run_write_operation(
                     "power_off_vm",
+                    "vc-main",
                     vm.name,
                     None,
                     None,
@@ -95,6 +97,7 @@ class ServerWriteOperationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "TaskInProgress"):
                 server._run_write_operation(
                     "restart_vm_force",
+                    "vc-main",
                     vm.name,
                     None,
                     None,
@@ -115,6 +118,7 @@ class ServerWriteOperationTests(unittest.TestCase):
             with self.assertRaisesRegex(SafetyError, "VM name duplicated"):
                 server._run_write_operation(
                     "power_on_vm",
+                    "vc-main",
                     vm.name,
                     None,
                     None,
@@ -139,6 +143,7 @@ class ServerWriteOperationTests(unittest.TestCase):
         with _patched_server(vm, audit_entries, safety_func=capture_safety):
             server._run_write_operation(
                 "power_on_vm",
+                "vc-main",
                 None,
                 None,
                 "vm-123",
@@ -169,9 +174,12 @@ def _patched_server(
             raise SafetyError(f"VM name duplicated: {vm_name}; use uuid or moid")
         return {"allowed": True, "vm": vm_name, "action": action, "unique": unique}
 
+    fake_client = MagicMock()
+    fake_client.get_service_instance.return_value = object()
+
     return patch.multiple(
         server,
-        _service_instance=lambda: object(),
+        POOL=MagicMock(get=MagicMock(return_value=fake_client)),
         find_vm=lambda service_instance, vm_name=None, uuid=None, moid=None: vm,
         is_vm_name_unique=lambda service_instance, vm_name: unique,
         check_power_permission=safety_func or safety,

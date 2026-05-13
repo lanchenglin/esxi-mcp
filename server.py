@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
 
 from mcp.server.fastmcp import FastMCP
@@ -13,22 +14,66 @@ from safety import SafetyError, check_power_permission
 from vm_inventory import find_vm, get_vm_status as get_vm_status_impl
 from vm_inventory import is_vm_name_unique, list_vms as list_vms_impl
 from vm_power import power_off_vm_impl, power_on_vm_impl, restart_vm_force_impl
-from vsphere_client import VSphereClient, load_config
+from vsphere_client import VSphereClientPool, load_config
 
 
 CONFIG = load_config()
-CLIENT = VSphereClient(CONFIG)
+POOL = VSphereClientPool(CONFIG)
 mcp = FastMCP(CONFIG.get("mcp", {}).get("name", "esxi-power-mcp"))
 
 
-def _service_instance() -> vim.ServiceInstance:
-    return CLIENT.get_service_instance()
+def _parallel_read(
+    func: Callable[..., dict[str, Any]], **kwargs: Any
+) -> dict[str, Any]:
+    """Runs func on all targets in parallel, merges results with source."""
+    items: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    clients = POOL.all_clients()
+
+    with ThreadPoolExecutor(max_workers=len(clients)) as executor:
+        futures = {
+            executor.submit(func, client.get_service_instance(), **kwargs): target
+            for target, client in clients.items()
+        }
+        for future in as_completed(futures):
+            target = futures[future]
+            try:
+                result = future.result()
+                if "items" in result:
+                    for item in result["items"]:
+                        item["source"] = target
+                        items.append(item)
+                else:
+                    items.append({**result, "source": target})
+            except Exception as exc:
+                errors.append({"target": target, "error": str(exc)})
+
+    return {"items": items, "errors": errors}
+
+
+def _single_read(
+    target: str, func: Callable[..., dict[str, Any]], **kwargs: Any
+) -> dict[str, Any]:
+    """Runs func on a single target, adds source field."""
+    client = POOL.get(target)
+    result = func(client.get_service_instance(), **kwargs)
+    if "items" in result:
+        for item in result["items"]:
+            item["source"] = target
+        return result
+    return {**result, "source": target}
 
 
 @mcp.tool()
-def list_vms(keyword: str | None = None, power_state: str | None = None) -> dict[str, Any]:
-    """Lists VMs, optionally filtered by keyword and power_state."""
-    return list_vms_impl(_service_instance(), keyword=keyword, power_state=power_state)
+def list_vms(
+    keyword: str | None = None,
+    power_state: str | None = None,
+    target: str | None = None,
+) -> dict[str, Any]:
+    """Lists VMs, optionally filtered by keyword, power_state, and target."""
+    if target is not None:
+        return _single_read(target, list_vms_impl, keyword=keyword, power_state=power_state)
+    return _parallel_read(list_vms_impl, keyword=keyword, power_state=power_state)
 
 
 @mcp.tool()
@@ -36,21 +81,34 @@ def get_vm_status(
     vm_name: str | None = None,
     uuid: str | None = None,
     moid: str | None = None,
+    target: str | None = None,
 ) -> dict[str, Any]:
     """Gets detailed status for one VM by moid, uuid, or unique name."""
-    return get_vm_status_impl(_service_instance(), vm_name=vm_name, uuid=uuid, moid=moid)
+    if target is not None:
+        return _single_read(target, get_vm_status_impl, vm_name=vm_name, uuid=uuid, moid=moid)
+    return _parallel_read(get_vm_status_impl, vm_name=vm_name, uuid=uuid, moid=moid)
 
 
 @mcp.tool()
-def list_hosts(keyword: str | None = None) -> dict[str, Any]:
-    """Lists ESXi hosts, optionally filtered by keyword."""
-    return list_hosts_impl(_service_instance(), keyword=keyword)
+def list_hosts(
+    keyword: str | None = None,
+    target: str | None = None,
+) -> dict[str, Any]:
+    """Lists ESXi hosts, optionally filtered by keyword and target."""
+    if target is not None:
+        return _single_read(target, list_hosts_impl, keyword=keyword)
+    return _parallel_read(list_hosts_impl, keyword=keyword)
 
 
 @mcp.tool()
-def get_host_resource(host_name: str) -> dict[str, Any]:
+def get_host_resource(
+    host_name: str,
+    target: str | None = None,
+) -> dict[str, Any]:
     """Gets CPU, memory, and VM-count resource summary for one host."""
-    return get_host_resource_impl(_service_instance(), host_name=host_name)
+    if target is not None:
+        return _single_read(target, get_host_resource_impl, host_name=host_name)
+    return _parallel_read(get_host_resource_impl, host_name=host_name)
 
 
 @mcp.tool()
@@ -58,13 +116,16 @@ def power_on_vm(
     vm_name: str | None = None,
     uuid: str | None = None,
     moid: str | None = None,
+    target: str = "",
     task_timeout: int = 300,
     state_timeout: int = 900,
 ) -> dict[str, Any]:
-    """Powers on a VM after whitelist and blacklist safety checks."""
+    """Powers on a VM on a specific target."""
+    _require_target(target)
     start = time.monotonic()
     return _run_write_operation(
         "power_on_vm",
+        target,
         vm_name,
         uuid,
         moid,
@@ -80,14 +141,17 @@ def power_off_vm(
     vm_name: str | None = None,
     uuid: str | None = None,
     moid: str | None = None,
+    target: str = "",
     confirm: bool = False,
     task_timeout: int = 300,
     state_timeout: int = 900,
 ) -> dict[str, Any]:
-    """Force-powers off a VM; confirm=true is required."""
+    """Force-powers off a VM on a specific target; confirm=true is required."""
+    _require_target(target)
     start = time.monotonic()
     return _run_write_operation(
         "power_off_vm",
+        target,
         vm_name,
         uuid,
         moid,
@@ -103,6 +167,7 @@ def restart_vm_force(
     vm_name: str | None = None,
     uuid: str | None = None,
     moid: str | None = None,
+    target: str = "",
     confirm: bool = False,
     poweroff_task_timeout: int = 300,
     poweroff_state_timeout: int = 900,
@@ -110,10 +175,12 @@ def restart_vm_force(
     poweron_state_timeout: int = 900,
     boot_wait: int = 30,
 ) -> dict[str, Any]:
-    """Force-restarts a VM; confirm=true is required."""
+    """Force-restarts a VM on a specific target; confirm=true is required."""
+    _require_target(target)
     start = time.monotonic()
     return _run_write_operation(
         "restart_vm_force",
+        target,
         vm_name,
         uuid,
         moid,
@@ -132,8 +199,16 @@ def restart_vm_force(
     )
 
 
+def _require_target(target: str) -> None:
+    """Validates that target is provided and valid."""
+    if not target:
+        raise ValueError("target is required for write operations")
+    POOL.get(target)
+
+
 def _run_write_operation(
     tool: str,
+    target: str,
     vm_name: str | None,
     uuid: str | None,
     moid: str | None,
@@ -142,7 +217,8 @@ def _run_write_operation(
     operation: Callable[[vim.VirtualMachine], dict[str, Any]],
     start: float,
 ) -> dict[str, Any]:
-    service_instance = _service_instance()
+    client = POOL.get(target)
+    service_instance = client.get_service_instance()
     vm_for_log = vm_name or uuid or moid or "unknown"
     try:
         vm = find_vm(service_instance, vm_name=vm_name, uuid=uuid, moid=moid)
@@ -153,6 +229,7 @@ def _run_write_operation(
             CONFIG,
             {
                 "tool": tool,
+                "target": target,
                 "vm": vm.name,
                 "moid": getattr(vm, "_moId", None),
                 "confirm": confirm,
@@ -169,6 +246,7 @@ def _run_write_operation(
             CONFIG,
             {
                 "tool": tool,
+                "target": target,
                 "vm": vm_for_log,
                 "confirm": confirm,
                 "result": "blocked",
@@ -182,6 +260,7 @@ def _run_write_operation(
             CONFIG,
             {
                 "tool": tool,
+                "target": target,
                 "vm": vm_for_log,
                 "confirm": confirm,
                 "result": "failure",
@@ -211,5 +290,5 @@ def _after_power_state(result: dict[str, Any]) -> Any:
 
 
 if __name__ == "__main__":
-    CLIENT.connect()
+    POOL.connect_all()
     mcp.run()
