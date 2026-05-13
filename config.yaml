@@ -1,9 +1,11 @@
 vsphere:
-  host: "vcenter.example.com"
-  port: 443
-  username: "svc_mcp_vsphere"
-  password_env: "VSPHERE_PASSWORD"    # 密码从环境变量读取
-  insecure_ssl: true
+  hosts:
+    vcenter-main:
+      host: "vcenter.example.com"
+      port: 443
+      username: "svc_mcp_vsphere"
+      password_env: "VSPHERE_PASSWORD_VC_MAIN"
+      insecure_ssl: true
 
 mcp:
   name: "esxi-power-mcp"
