@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Git
+.git/
+.gitignore
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude / Hermes
+.omc/
+.claude/
+.hermes/
+
+# Tests (not needed in production image)
+tests/
+
+# Docs
+docs/
+
+# Env files
+.env
+.env.*
+
+# Config overrides
+config.local.yaml
+
+# Logs (volume mount at runtime)
+logs/
