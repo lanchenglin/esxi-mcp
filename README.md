@@ -1,8 +1,8 @@
 # ESXi Power MCP Server
 
-Lightweight MCP server for ESXi / vSphere resource inspection and VM power recovery. It intentionally exposes only seven tools: VM listing, VM status, host listing, host resources, VM power on, forced VM power off, and forced VM restart.
+轻量级 ESXi / vSphere MCP Server，专注资源巡检和虚拟机电源管理。只暴露 7 个工具：列出虚拟机、查询 VM 状态、列出宿主机、查询宿主机资源、开机、强制关机、强制重启。
 
-## Install
+## 安装
 
 ```bash
 python3 -m venv .venv
@@ -10,123 +10,131 @@ python3 -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Configure
+## 配置
 
-Edit `config.yaml`:
+复制模板并编辑 `config.yaml`：
+
+```bash
+cp config.yaml.template config.yaml
+```
+
+支持两种密码配置方式：
+
+### 方式一：明文密码（简单场景）
 
 ```yaml
 vsphere:
   hosts:
-    vcenter-main:
-      host: "vcenter.example.com"
+    esxi-example:
+      host: "172.16.0.x"
       port: 443
-      username: "svc_mcp_vsphere"
-      password_env: "VSPHERE_PASSWORD_VC_MAIN"
+      username: "root"
+      password: "your-password-here"
       insecure_ssl: true
-    # esxi-bj:
-    #   host: "192.168.1.10"
-    #   port: 443
-    #   username: "root"
-    #   password_env: "VSPHERE_PASSWORD_ESXI_BJ"
-    #   insecure_ssl: true
 ```
 
-Set each password in the environment. Do not put passwords in `config.yaml`.
+### 方式二：环境变量（推荐生产使用）
+
+```yaml
+vsphere:
+  hosts:
+    esxi-example:
+      host: "172.16.0.x"
+      port: 443
+      username: "root"
+      password_env: "VSPHERE_PASSWORD_ESXI_EXAMPLE"
+      insecure_ssl: true
+```
 
 ```bash
-export VSPHERE_PASSWORD_VC_MAIN='your-password'
-# export VSPHERE_PASSWORD_ESXI_BJ='your-password'
+export VSPHERE_PASSWORD_ESXI_EXAMPLE='your-password'
 ```
 
-Power operations are controlled by `safety.allow_power_ops` and `safety.deny_power_ops`. The deny list wins over the allow list, and an empty allow list blocks all VM power operations.
+> 优先读取 `password` 字段，未配置则从 `password_env` 指定的环境变量获取。密码不要提交到 git。
 
-## Run
+### 安全控制
+
+电源操作受 `safety.allow_power_ops`（白名单）和 `safety.deny_power_ops`（黑名单）控制。黑名单优先级高于白名单，空白名单阻止所有电源操作。
+
+## 运行
 
 ```bash
 python3 server.py
 ```
 
-The server uses FastMCP over stdio and connects to vCenter or directly to ESXi through pyVmomi.
+服务使用 FastMCP 通过 stdio 通信，通过 pyVmomi 连接 vCenter 或直连 ESXi。
 
 ## Docker
 
-Build the image:
+### 构建镜像
 
 ```bash
 docker build -t esxi-mcp .
 ```
 
-Run with config mounted and password from environment:
+### 直接运行
 
 ```bash
 docker run -i \
-  -e VSPHERE_PASSWORD_VC_MAIN='your-password' \
+  --network host \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v esxi-logs:/app/logs \
   esxi-mcp
 ```
 
-The `-i` flag is required — the MCP server communicates over stdio and stdin must stay open.
+`-i` 标志必须保留 — MCP Server 通过 stdio 通信，stdin 必须保持打开。`--network host` 确保容器能访问内网 ESXi 主机。
 
 ### Docker Compose
-
-Create a `.env` file with your password:
-
-```bash
-echo 'VSPHERE_PASSWORD_VC_MAIN=your-password' > .env
-```
-
-Then start:
 
 ```bash
 docker-compose up -d
 ```
 
-Config is mounted read-only from the host. Audit logs persist in the `esxi-logs` named volume.
+配置文件以只读方式挂载，审计日志持久化在 `esxi-logs` 卷中。
 
-### MCP client config (Claude Desktop / Hermes)
+### MCP 客户端配置（Claude Desktop / Hermes）
 
 ```json
 {
   "mcpServers": {
     "esxi-power-mcp": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "VSPHERE_PASSWORD_VC_MAIN", "-v", "/path/to/config.yaml:/app/config.yaml:ro", "-v", "esxi-logs:/app/logs", "esxi-mcp"]
+      "args": ["run", "-i", "--rm", "--network", "host", "-v", "/path/to/config.yaml:/app/config.yaml:ro", "-v", "esxi-logs:/app/logs", "esxi-mcp"]
     }
   }
 }
 ```
 
-## Tools
+## 工具清单
 
-### Read-only
+### 只读工具
 
-- `list_vms(keyword=None, power_state=None, target=None)` — query all targets in parallel when `target` is omitted; each item includes a `source` field
+- `list_vms(keyword=None, power_state=None, target=None)` — 省略 `target` 时并行查询所有主机，每条结果包含 `source` 字段
 - `get_vm_status(vm_name=None, uuid=None, moid=None, target=None)`
 - `list_hosts(keyword=None, target=None)`
 - `get_host_resource(host_name, target=None)`
 
-### Write operations
+### 写操作工具
 
 - `power_on_vm(vm_name=None, uuid=None, moid=None, target, task_timeout=300, state_timeout=900)`
 - `power_off_vm(vm_name=None, uuid=None, moid=None, target, confirm=False, task_timeout=300, state_timeout=900)`
 - `restart_vm_force(vm_name=None, uuid=None, moid=None, target, confirm=False, poweroff_task_timeout=300, poweroff_state_timeout=900, poweron_task_timeout=300, poweron_state_timeout=900, boot_wait=30)`
 
-`target` is **required** for all write operations. Read operations accept an optional `target` — omit it to query all configured hosts and merge results. `power_off_vm` and `restart_vm_force` require `confirm=true`. All write operations must match `allow_power_ops`, must not match `deny_power_ops`, and must resolve to exactly one VM.
+`target` 在写操作中**必填**。读操作可省略 `target` 以查询所有主机并合并结果。`power_off_vm` 和 `restart_vm_force` 必须传 `confirm=true`。所有写操作必须匹配白名单、不匹配黑名单、且精确定位到唯一 VM。
 
-## VM lookup priority
+## VM 查找优先级
 
-1. `moid`
-2. `uuid`
-3. `vm_name` only when unique
+1. `moid`（精确）
+2. `uuid`（精确）
+3. `vm_name`（必须唯一，重名时报错）
 
-Use `list_vms` first to discover `moid` and `uuid` for exact operations.
+建议先调用 `list_vms` 获取 `moid` 和 `uuid` 用于精确操作。
 
-## Audit logs
+## 审计日志
 
-All write attempts are recorded as JSON Lines in `logs/audit.log` by default, including successful, blocked, and failed operations. The log is rotated to `audit.log.1` when it grows beyond 10 MiB.
+所有写操作尝试（成功、阻止、失败）都会以 JSON Lines 格式记录到 `logs/audit.log`。日志超过 10 MiB 时自动轮转为 `audit.log.1`。
 
-## Test
+## 测试
 
 ```bash
 python3 -m unittest discover -s tests
