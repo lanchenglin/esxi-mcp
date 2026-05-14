@@ -8,3 +8,4 @@ logs/*.log
 .omc/
 config.yaml
 scripts/
+.claude/
