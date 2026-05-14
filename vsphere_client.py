@@ -67,10 +67,12 @@ class VSphereClient:
             vsphere_config = self.config.get("vsphere", {})
             host = _required_string(vsphere_config, "host")
             username = _required_string(vsphere_config, "username")
-            password_env = _required_string(vsphere_config, "password_env")
-            password = os.getenv(password_env)
+            password = vsphere_config.get("password")
             if not password:
-                raise VSphereConfigError(f"Environment variable {password_env} is required")
+                password_env = _required_string(vsphere_config, "password_env")
+                password = os.getenv(password_env)
+                if not password:
+                    raise VSphereConfigError(f"Environment variable {password_env} is required")
 
             port = int(vsphere_config.get("port", 443))
             context = _build_ssl_context(bool(vsphere_config.get("insecure_ssl", True)))

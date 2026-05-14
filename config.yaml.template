@@ -1,12 +1,14 @@
 vsphere:
   hosts:
+    # 方式一：明文密码（简单场景，注意 config.yaml 不要提交到 git）
     vcenter-main:
       host: "vcenter.example.com"
       port: 443
       username: "svc_mcp_vsphere"
-      password_env: "VSPHERE_PASSWORD_VC_MAIN"
+      password: "your-password-here"
       insecure_ssl: true
-    # 直连 ESXi 示例（无 vCenter 时）
+
+    # 方式二：环境变量引用（推荐生产使用）
     # esxi-example:
     #   host: "172.16.0.x"
     #   port: 443

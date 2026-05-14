@@ -1,0 +1,218 @@
+# 项目 .gitignore 规范
+
+## 核心原则
+
+1. **敏感配置不上传** — 含 IP、密码、密钥、token 的文件一律排除
+2. **本地文档不上传** — 项目内设计文档、笔记等仅保留在本地
+3. **工具链产物不上传** — IDE、AI 工具、缓存等运行时生成的文件一律排除
+4. **用 template 替代** — 配置文件提供 `.template` 示例，实际配置由 `.gitignore` 排除
+5. **密钥文件零容忍** — .pem、.key、id_rsa 等私钥文件绝不上传
+
+## 完整 .gitignore 模板
+
+按需复制对应区块到项目的 `.gitignore`：
+
+```gitignore
+# ============================================================
+#  通用 — 所有项目必须包含
+# ============================================================
+
+# === 敏感配置 ===
+config.yaml
+config.json
+config.toml
+config.ini
+.env
+.env.*
+*.local
+*.secret
+credentials.json
+service-account*.json
+# 保留 template 供参考
+!config.yaml.template
+!config.json.template
+
+# === 密钥和证书（零容忍） ===
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_ed25519
+id_ecdsa
+*.pub          # 公钥看情况，私密环境建议也排除
+ssh_config
+known_hosts
+*.crt          # 自签名证书
+*.ca-bundle
+
+# === AI / 工具链 ===
+.claude/
+.omc/
+.hermes/
+.cursor/
+.windsurf/
+.aider*
+.copilot/
+.codeium/
+.tabby/
+ continue/
+.devai/
+.augment/
+.cline/
+.roo/
+.cody/
+
+# === 本地脚本和文档 ===
+scripts/
+docs/
+
+# === 运行时产物 ===
+logs/
+*.log
+*.sqlite
+*.db
+
+# === 操作系统 ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+#  Python 项目
+# ============================================================
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.whl
+
+# ============================================================
+#  Node.js 项目
+# ============================================================
+node_modules/
+.npm
+.yarn/
+.pnp.*
+next/
+.nuxt/
+out/
+.turbo/
+*.tsbuildinfo
+
+# ============================================================
+#  Go 项目
+# ============================================================
+bin/
+tmp/
+*.exe
+*.dll
+*.so
+*.a
+*.test
+
+# ============================================================
+#  Java 项目
+# ============================================================
+target/
+.gradle/
+build/
+*.class
+*.jar
+*.war
+*.ear
+.settings/
+.classpath
+.project
+
+# ============================================================
+#  Rust 项目
+# ============================================================
+target/
+Cargo.lock    # library 项目排除，application 项目保留
+
+# ============================================================
+#  Docker / 容器
+# ============================================================
+docker-compose.override.yml
+.docker/
+*.tar
+*.tar.gz
+
+# ============================================================
+#  CI/CD
+# ============================================================
+# GitHub Actions 运行产物
+.github/workflows/*.tmp
+
+# Jenkins
+.jenkins/
+
+# Terraform 状态（含基础设施敏感信息）
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+terraform.tfvars.json
+
+# Ansible vault
+*.vault
+vault-password.txt
+
+# ============================================================
+#  IDE
+# ============================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+```
+
+## 使用方式
+
+1. 从模板中选取项目需要的区块，复制到 `.gitignore`
+2. **首次提交前**运行检查清单确认无敏感数据
+3. 如果已经误提交，用以下命令移除（本地文件保留）：
+
+```bash
+# 从 git 追踪中移除，但保留本地文件
+git rm --cached <文件或目录>
+
+# 提交并推送
+git commit -m "chore: 移除敏感文件"
+git push
+```
+
+## 检查清单
+
+新项目初始化后，运行以下命令确认无敏感数据泄漏：
+
+```bash
+# 查看所有被追踪的文件
+git ls-files
+
+# 搜索密码、密钥、token 相关内容
+git ls-files | xargs grep -lE '(password|secret|token|api_key|private_key)\s*[:=]' 2>/dev/null
+
+# 搜索内网 IP 地址
+git ls-files | xargs grep -lE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' 2>/dev/null
+
+# 搜索私钥文件
+git ls-files | xargs grep -l 'BEGIN.*PRIVATE KEY' 2>/dev/null
+
+# 一次性全部检查（综合脚本）
+echo "=== 敏感文件检查 ===" && \
+git ls-files | xargs grep -lE '(password|secret|token|api_key)\s*[:=]|BEGIN.*PRIVATE KEY|[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' 2>/dev/null && \
+echo "=== 检查完毕 ==="
+```
