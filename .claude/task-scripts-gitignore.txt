@@ -1,0 +1,48 @@
+# 任务：隔离测试脚本，防止密码泄露到 git
+
+## 背景
+当前 `test_vsphere_connectivity.py` 已推送到 GitHub，该文件包含：
+- 实际的 ESXi 主机 IP 列表（28台）
+- 密码名称和分组信息（注释中）
+- 这些信息不应该公开在 GitHub 上
+
+## 要做什么
+
+### 1. 创建 `scripts/` 目录
+在项目根目录下创建 `scripts/` 目录，用于存放所有包含敏感信息的测试/调试脚本。
+
+### 2. 移动敏感脚本到 scripts/
+- 移动 `test_vsphere_connectivity.py` → `scripts/test_vsphere_connectivity.py`
+- 移动 `audit.py` → `scripts/audit.py`（如果包含主机信息）
+- 移动 `host_inventory.py` → `scripts/host_inventory.py`（如果包含主机信息）
+- 移动 `vm_inventory.py` → `scripts/vm_inventory.py`（如果包含主机信息）
+
+注意：先检查每个文件是否包含实际的 IP/密码信息，只移动确实包含敏感数据的脚本。
+
+### 3. 更新代码中的 import 路径
+如果项目代码中引用了这些脚本的路径，更新引用。
+
+### 4. 更新 .gitignore
+添加 `scripts/` 到 .gitignore，确保整个目录不会被 git 追踪。
+
+### 5. 从 git 历史中移除已推送的敏感文件
+```bash
+git rm --cached test_vsphere_connectivity.py
+git rm --cached audit.py  # 如果上面移动了
+git rm --cached host_inventory.py  # 如果上面移动了
+git rm --cached vm_inventory.py  # 如果上面移动了
+```
+
+### 6. 提交并推送
+```bash
+git add .gitignore scripts/
+git add -u  # 暂存删除操作
+git commit -m "chore: move sensitive scripts to scripts/ directory, gitignore scripts/"
+git push
+```
+
+## 重要提醒
+- .gitignore 里已有 `config.yaml`，不要动它
+- `config.yaml.template` 应该保留在 git 中（不含真实密码）
+- 移到 scripts/ 后这些脚本仍然在本地可用，只是不会被推送到 GitHub
+- 如果某些脚本其他人需要参考，可以创建不含敏感数据的示例版本放到 docs/ 或保留在根目录
