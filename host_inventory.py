@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import math
+import re
 from typing import Any
 
 from pyVmomi import vim
@@ -132,6 +132,82 @@ def _pct(used: float | int | None, total: float | int | None) -> float | None:
     return round(float(used) / float(total) * 100, 1)
 
 
+_SENSOR_ALERT_PATTERNS = [
+    (re.compile(r"Drive Fault(?!\s*-\s*Deassert)", re.I), "critical", "磁盘故障"),
+    (re.compile(r"Predictive Failure(?!\s*-\s*Deassert)", re.I), "warning", "磁盘预故障"),
+    (re.compile(r"In Critical Array(?!\s*-\s*Deassert)", re.I), "critical", "RAID 阵列降级"),
+    (re.compile(r"In Failed Array(?!\s*-\s*Deassert)", re.I), "critical", "RAID 阵列失败"),
+    (re.compile(r"Rebuild In Progress(?!\s*-\s*Deassert)", re.I), "warning", "RAID 重建中"),
+    (re.compile(r"Rebuild Aborted(?!\s*-\s*Deassert)", re.I), "critical", "RAID 重建中止"),
+    (re.compile(r"Parity Check In Progress(?!\s*-\s*Deassert)", re.I), "warning", "RAID 一致性检查"),
+    (re.compile(r"(?:Drive|Disk|Array|RAID|PERC).*Config Error(?!\s*-\s*Deassert)", re.I), "warning", "存储配置错误"),
+    (re.compile(r"Battery.*(?:Failed|Low)(?!\s*-\s*Deassert)", re.I), "warning", "RAID 电池异常"),
+    (re.compile(r"Cache.*(?:Failed|Degraded)(?!\s*-\s*Deassert)", re.I), "warning", "RAID 缓存异常"),
+]
+
+_SENSOR_TYPE_MAP = {
+    "temperature": "温度",
+    "fan": "风扇",
+    "power": "电源",
+    "voltage": "电压",
+    "storage": "存储",
+    "battery": "电池",
+}
+
+_DISK_SENSOR_EXCLUDE = re.compile(
+    r"Software Components|scsi-megaraid|scsi-aacraid|scsi-megaraid-mbox|"
+    r"scsi-megaraid2|misc-drivers|driver\s|^CPU\d",
+    re.I,
+)
+
+
+def _analyze_sensors(sensors: list[Any]) -> dict[str, Any]:
+    """Analyzes IPMI/BMC numeric sensors, returns alerts and category summaries."""
+    alerts: list[dict[str, str]] = []
+    categories: dict[str, int] = {}
+    for s in sensors:
+        name = _safe_get(s, "name") or ""
+        stype = str(_safe_get(s, "sensorType") or "").lower()
+        reading = _safe_get(s, "currentReading", 0)
+        if _DISK_SENSOR_EXCLUDE.search(name):
+            continue
+        cat_key = _SENSOR_TYPE_MAP.get(stype, stype)
+        categories[cat_key] = categories.get(cat_key, 0) + 1
+        if stype == "temperature" and reading and "Temp" in name:
+            temp_c = reading / 100.0
+            if temp_c > 80:
+                alerts.append({"severity": "critical", "category": "温度", "message": f"{name}: {temp_c:.0f}°C"})
+            elif temp_c > 70:
+                alerts.append({"severity": "warning", "category": "温度", "message": f"{name}: {temp_c:.0f}°C"})
+        if stype == "fan" and reading is not None and reading == 0 and "RPM" in name:
+            alerts.append({"severity": "critical", "category": "风扇", "message": f"{name}: 0 RPM (故障)"})
+        if stype == "power" and reading is not None and reading == 0:
+            if "Current" in name and "- Deassert" not in name and "--- Normal" not in name:
+                alerts.append({"severity": "warning", "category": "电源", "message": f"{name}: 0A (可能离线)"})
+        for pattern, severity, label in _SENSOR_ALERT_PATTERNS:
+            if pattern.search(name):
+                alerts.append({"severity": severity, "category": "磁盘阵列", "message": f"{name}"})
+                break
+    return {"alerts": alerts, "sensor_categories": categories}
+
+
+def _analyze_disk_luns(scsi_luns: list[Any]) -> list[dict[str, Any]]:
+    """Analyzes SCSI LUNs for operational state anomalies."""
+    disk_issues: list[dict[str, str]] = []
+    for lun in scsi_luns:
+        device_name = _safe_get(lun, "deviceName", "")
+        if "cdrom" in device_name:
+            continue
+        op_states = list(_safe_get(lun, "operationalState") or [])
+        if not all(s == "ok" for s in op_states):
+            disk_issues.append({
+                "device": device_name,
+                "model": _safe_get(lun, "model", "?"),
+                "operational_state": ", ".join(op_states) if op_states else "unknown",
+            })
+    return disk_issues
+
+
 def get_host_health(
     service_instance: vim.ServiceInstance,
     host_name: str,
@@ -182,11 +258,33 @@ def get_host_health(
         elif state == "suspended":
             vm_suspended += 1
 
+    # Config issues (e.g. SSH enabled events)
+    config_issues = []
+    for ci in _safe_get(host, "configIssue") or []:
+        config_issues.append({
+            "type": type(ci).__name__,
+            "message": _safe_get(ci, "fullFormattedMessage") or str(ci),
+        })
+
+    # Hardware sensor alerts (temperature, fan, power, disk/RAID)
+    health_runtime = _safe_get(runtime, "healthSystemRuntime")
+    sensor_info = _safe_get(_safe_get(health_runtime, "systemHealthInfo"), "numericSensorInfo")
+    sensor_result = _analyze_sensors(list(sensor_info or []))
+
+    # Disk LUN operational state
+    storage_system = _safe_get(_safe_get(host, "configManager"), "storageSystem")
+    scsi_luns = _safe_get(_safe_get(storage_system, "storageDeviceInfo"), "scsiLun")
+    disk_issues = _analyze_disk_luns(list(scsi_luns or []))
+
     return {
         "name": _safe_get(host, "name"),
         "overall_status": _enum_value(_safe_get(host, "overallStatus")),
         "config_status": _enum_value(_safe_get(host, "configStatus")),
+        "config_issues": config_issues,
         "alarms": alarms,
+        "hardware_alerts": sensor_result["alerts"],
+        "sensor_categories": sensor_result["sensor_categories"],
+        "disk_issues": disk_issues,
         "cpu": {
             "used_mhz": cpu_used_mhz,
             "total_mhz": cpu_total_mhz,
