@@ -204,4 +204,6 @@ def _build_ssl_context(insecure_ssl: bool) -> ssl.SSLContext | None:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
+    context.minimum_version = ssl.TLSVersion.TLSv1
+    context.set_ciphers("DEFAULT:@SECLEVEL=0")
     return context

@@ -17,6 +17,7 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /root/.local /home/mcp/.local
 ENV PATH="/home/mcp/.local/bin:$PATH"
+ENV PYTHONPATH="/home/mcp/.local/lib/python3.11/site-packages"
 
 # Copy application code
 COPY server.py vm_power.py vm_inventory.py host_inventory.py safety.py audit.py vsphere_client.py ./
