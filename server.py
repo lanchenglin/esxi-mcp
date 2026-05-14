@@ -9,6 +9,9 @@ from pyVmomi import vim
 
 from audit import write_audit_log
 from host_inventory import get_host_resource as get_host_resource_impl
+from host_inventory import get_host_health as get_host_health_impl
+from host_inventory import get_host_storage as get_host_storage_impl
+from host_inventory import inspect_hosts_single as inspect_hosts_single_impl
 from host_inventory import list_hosts as list_hosts_impl
 from safety import SafetyError, check_power_permission
 from vm_inventory import find_vm, get_vm_status as get_vm_status_impl
@@ -109,6 +112,47 @@ def get_host_resource(
     if target is not None:
         return _single_read(target, get_host_resource_impl, host_name=host_name)
     return _parallel_read(get_host_resource_impl, host_name=host_name)
+
+
+@mcp.tool()
+def get_host_health(
+    host_name: str,
+    target: str | None = None,
+) -> dict[str, Any]:
+    """Returns comprehensive health status for one ESXi host."""
+    if target is not None:
+        return _single_read(target, get_host_health_impl, host_name=host_name)
+    return _parallel_read(get_host_health_impl, host_name=host_name)
+
+
+@mcp.tool()
+def get_host_storage(
+    host_name: str,
+    target: str | None = None,
+) -> dict[str, Any]:
+    """Returns storage/Datastore usage for one ESXi host."""
+    if target is not None:
+        return _single_read(target, get_host_storage_impl, host_name=host_name)
+    return _parallel_read(get_host_storage_impl, host_name=host_name)
+
+
+@mcp.tool()
+def inspect_hosts(
+    status_filter: str | None = None,
+    target: str | None = None,
+) -> dict[str, Any]:
+    """Batch inspection of host health across all or one target."""
+    result = _parallel_read(inspect_hosts_single_impl, status_filter=status_filter)
+    green = sum(1 for i in result["items"] if i.get("overall_status") == "green")
+    yellow = sum(1 for i in result["items"] if i.get("overall_status") == "yellow")
+    red = sum(1 for i in result["items"] if i.get("overall_status") == "red")
+    result["summary"] = {
+        "total_hosts": len(result["items"]),
+        "green": green,
+        "yellow": yellow,
+        "red": red,
+    }
+    return result
 
 
 @mcp.tool()
