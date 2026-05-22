@@ -62,14 +62,14 @@ export VSPHERE_PASSWORD_ESXI_EXAMPLE='your-password'
 python3 server.py
 ```
 
-默认通过 stdio 通信。设置环境变量 `MCP_TRANSPORT=sse` 可切换为 HTTP/SSE 模式，通过 `MCP_PORT` 指定端口（默认 8000）。
+默认以 SSE 模式启动（端口 8001）。设置环境变量 `MCP_TRANSPORT=stdio` 可切换为 stdio 模式，通过 `MCP_PORT` 指定端口。
 
 ```bash
-# stdio 模式（默认）
+# SSE 模式（默认）
 python3 server.py
 
-# SSE 模式（远程访问）
-MCP_TRANSPORT=sse MCP_PORT=8000 python3 server.py
+# stdio 模式
+MCP_TRANSPORT=stdio python3 server.py
 ```
 
 ## Docker
@@ -83,18 +83,17 @@ docker build -t esxi-mcp .
 ### 直接运行
 
 ```bash
-# stdio 模式（默认，本地使用）
-docker run -i \
+# SSE 模式（默认）
+docker run -d \
   --network host \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v esxi-logs:/app/logs \
   esxi-mcp
 
-# SSE 模式（远程访问）
-docker run -d \
+# stdio 模式
+docker run -i \
   --network host \
-  -e MCP_TRANSPORT=sse \
-  -e MCP_PORT=8000 \
+  -e MCP_TRANSPORT=stdio \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v esxi-logs:/app/logs \
   esxi-mcp
@@ -105,11 +104,11 @@ stdio 模式下 `-i` 标志必须保留，SSE 模式下无需 `-i`。`--network 
 ### Docker Compose
 
 ```bash
-# stdio 模式（默认）
+# SSE 模式（默认）
 docker-compose up -d
 
-# SSE 模式
-MCP_TRANSPORT=sse docker-compose up -d
+# stdio 模式
+MCP_TRANSPORT=stdio docker-compose up -d
 ```
 
 通过环境变量 `MCP_TRANSPORT` 和 `MCP_PORT` 控制传输模式，配置文件以只读方式挂载，审计日志持久化在 `esxi-logs` 卷中。
