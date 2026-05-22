@@ -65,8 +65,8 @@ known_hosts
 .cody/
 
 # === 本地脚本和文档 ===
-scripts/
-docs/
+local_scripts/
+local_docs/
 
 # === 运行时产物 ===
 logs/

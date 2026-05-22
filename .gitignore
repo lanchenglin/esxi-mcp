@@ -1,12 +1,68 @@
+# === 敏感配置 ===
+config.yaml
+config.json
+config.toml
+config.ini
+.env
+.env.*
+!.env.template
+*.local
+*.secret
+credentials.json
+service-account*.json
+!config.yaml.template
+!config.json.template
+
+# === 密钥和证书（零容忍） ===
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_ed25519
+id_ecdsa
+*.crt
+*.ca-bundle
+
+# === AI / 工具链 ===
+.claude/
+.omc/
+.hermes/
+.cursor/
+.windsurf/
+.aider*
+.copilot/
+.cline/
+.roo/
+.cody/
+
+# === 本地脚本和文档 ===
+scripts/
+docs/
+
+# === 运行时产物 ===
+logs/
+*.log
+*.sqlite
+*.db
+
+# === 操作系统 ===
+.DS_Store
+Thumbs.db
+
+# ============================================================
+#  Python
+# ============================================================
 .venv/
+venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
+dist/
+build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-logs/*.log
-.omc/
-config.yaml
-scripts/
-.claude/
-docs/
+.coverage
+htmlcov/
