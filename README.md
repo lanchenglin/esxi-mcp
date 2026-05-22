@@ -62,7 +62,15 @@ export VSPHERE_PASSWORD_ESXI_EXAMPLE='your-password'
 python3 server.py
 ```
 
-服务使用 FastMCP 通过 stdio 通信，通过 pyVmomi 连接 vCenter 或直连 ESXi。
+默认通过 stdio 通信。设置环境变量 `MCP_TRANSPORT=sse` 可切换为 HTTP/SSE 模式，通过 `MCP_PORT` 指定端口（默认 8000）。
+
+```bash
+# stdio 模式（默认）
+python3 server.py
+
+# SSE 模式（远程访问）
+MCP_TRANSPORT=sse MCP_PORT=8000 python3 server.py
+```
 
 ## Docker
 
@@ -75,22 +83,36 @@ docker build -t esxi-mcp .
 ### 直接运行
 
 ```bash
+# stdio 模式（默认，本地使用）
 docker run -i \
   --network host \
   -v $(pwd)/config.yaml:/app/config.yaml:ro \
   -v esxi-logs:/app/logs \
   esxi-mcp
+
+# SSE 模式（远程访问）
+docker run -d \
+  --network host \
+  -e MCP_TRANSPORT=sse \
+  -e MCP_PORT=8000 \
+  -v $(pwd)/config.yaml:/app/config.yaml:ro \
+  -v esxi-logs:/app/logs \
+  esxi-mcp
 ```
 
-`-i` 标志必须保留 — MCP Server 通过 stdio 通信，stdin 必须保持打开。`--network host` 确保容器能访问内网 ESXi 主机。
+stdio 模式下 `-i` 标志必须保留，SSE 模式下无需 `-i`。`--network host` 确保容器能访问内网 ESXi 主机。
 
 ### Docker Compose
 
 ```bash
+# stdio 模式（默认）
 docker-compose up -d
+
+# SSE 模式
+MCP_TRANSPORT=sse docker-compose up -d
 ```
 
-配置文件以只读方式挂载，审计日志持久化在 `esxi-logs` 卷中。
+通过环境变量 `MCP_TRANSPORT` 和 `MCP_PORT` 控制传输模式，配置文件以只读方式挂载，审计日志持久化在 `esxi-logs` 卷中。
 
 ### MCP 客户端配置（Claude Desktop / Hermes）
 

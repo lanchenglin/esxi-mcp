@@ -27,5 +27,8 @@ RUN mkdir -p /app/logs && chown -R mcp:mcp /app
 
 USER mcp
 
-# MCP server communicates via stdio — keep stdin open with -i flag
+EXPOSE 8000
+
+# stdio (default): docker run -i --rm esxi-mcp
+# SSE (remote):    docker run -d -p 8000:8000 -e MCP_TRANSPORT=sse --rm esxi-mcp
 CMD ["python", "server.py"]
